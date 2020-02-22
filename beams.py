@@ -74,7 +74,8 @@ class simple_support_2:  # a simple beam with simple support on both of its ends
         self.loads = loads
         self.e = e
         self.i = i
-        self.correction = 0  # for double integral factor to find deflection
+        self.correction = 1  # for double integral factor to find deflection
+        self.correction2 = 0
         for load in self.loads:
             if load.position() > self.length:
                 print('Error - one of the loads exceeds beam length!')
@@ -137,30 +138,70 @@ class simple_support_2:  # a simple beam with simple support on both of its ends
         temp = self.__shear_moment(position)
         return (-1 * temp[1] + position * temp[0])
 
-    def y_tag_tag(self, position):  # E*I*y''=M
-        return (self.moment(position) / (self.e * self.i))
+    def moment_area(self, a, b):  # compute moment area between b>=x>=a
+        if (a > b or a < 0 or a > self.length or b < 0 or b > self.length):
+            print('error - index error in moment_area')
+            exit()
+        return (scipy.integrate.quad(self.moment, a, b)[0])
 
-    def y_tag(self, position):
-        res = scipy.integrate.quad(self.y_tag_tag, 0, position)+self.correction
-        return(res[0])
+    def moment_da_x(self, position):  # function needed for moment_x_cg integration
+        return(self.moment(position)*position)
 
-    def y(self, position):
-        res = scipy.integrate.quad(self.y_tag, 0, position)
-        return(res[0])
+    def moment_x_cg(self, a, b):  # compute the x_cg of the moment from a over span a to b
+        f = scipy.integrate.quad(self.moment_da_x, a, b)[0]
+        return (f / self.moment_area(a, b))
 
-    def correct_factor(self):
-        #find defelection at right support
-        test = self.y(self.right)
-        if test > 1:
-            count = 0
-            while count < 100 and test > 1:
-                self.correction -= 0.2
-                test = self.y(self.right)
-                count+=1
-            if count < 100:
-                print('Converged! y is', test,'at right support')
-                exit()
-            print('not converged while test>1', test)
+    def y(self, position):  # compute defelction using area-moment theorem
+        # a is left support, b is position to find, c is right support
+        # refer to https://www.mathalino.com/reviewer/mechanics-and-strength-of-materials/deflection-in-simply-supported-beams-area-moment-method
+
+        if position > self.left and position < self.right:
+            # find xc, which is the distance to cg of the moment area, from support c
+            xc = self.moment_x_cg(self.left, self.right)
+            xc = (self.right - self.left) - xc
+            # now compute t_ca
+            t_ca = self.moment_area(
+                self.left, self.right) * xc / (self.e * self.i)
+            # find xb, which is the distance to cg of the moment area, from position to support a
+            xb = self.moment_x_cg(self.left, position)
+            xb = (position - self.left) - xb
+            # now compute t_ba
+            t_ba = self.moment_area(self.left, position) * \
+                                    xb / (self.e * self.i)
+            return(-1*(position*t_ca/(self.right-self.left)-t_ba))
+
+        if position == self.left or position == self.right:
+            return (0)
+
+        if position > self.right:
+            xa = self.moment_x_cg(self.left, self.right)
+            xa = xa - self.left
+            t_ab = self.moment_area(
+                self.left, self.right) * xa / (self.e * self.i)
+            print('t_ab is', t_ab)
+            y_position = t_ab * (position - self.right) / \
+                                 (self.right - self.left)
+            xc = self.moment_x_cg(self.right, position)
+            xc = position - xc
+            print('xc is', xc)
+            print('moment_area bc is', self.moment_area(self.right, position))
+            t_cb = self.moment_area(
+                self.right, position) * xc / (self.e * self.i)
+            print('t_cb is', t_cb)
+            return (y_position + t_cb)
+
+        if position < self.left:
+            xa = self.moment_x_cg(position, self.left)
+            xa = xa - position
+            t_ab = self.moment_area(position, self.left) * \
+                                    xa / (self.e * self.i)
+            xc = self.moment_x_cg(self.left, self.right)
+            xc = self.right - xc
+            t_cb = self.moment_area(
+                self.left, self.right) * xc / (self.e * self.i)
+            y_position = t_cb * (self.left - position) / \
+                                 (self.right - self.left)
+            return(y_position+t_ab)
 
     def plot_moment(self):
         data_x = []
@@ -172,16 +213,34 @@ class simple_support_2:  # a simple beam with simple support on both of its ends
             data_y += [self.moment(x)]
             x += delta
         plt.plot(data_x, data_y)
-        input('press enter...')
+        return
+
+    def plot_deflection(self):
+        data_x = []
+        data_y = []
+        x = 0
+        delta = 0.1
+        while x <= self.length:
+            data_x += [x]
+            data_y += [self.y(x)]
+            x += delta
+        plt.plot(data_x, data_y)
+        return
+
+    
 
 
-f1 = linear_load(0, -270, 0, 6)
-f2 = force(-600, 3)
-f3 = force(-900, 4)
-cl1 = constant_load(-60, 0, 18)
+f1 = linear_load(0, -900, 1, 4)
+m1=moment(600,0)
+f2 = force(-60, 13)
+f3 = force(400, 7)
+cl1 = constant_load(-80, 0, 4)
 m = moment(4800, 9)
-a = simple_support_2(5, [f2, f3], e=1, i=1)
+a = simple_support_2(4, [f1,m1], e=1, i=1,left=1)
 print('reactions:', a.r1.magnitude(), a.r2.magnitude())
 print('moment at', a.length, a.moment(a.length))
-print('deflection at 2.5', a.y(2.5))
+print('deflection at 0:', a.y(4))
+
 a.plot_moment()
+a.plot_deflection()
+input('press enter...')
