@@ -2,7 +2,7 @@ import math
 import scipy.integrate
 
 import matplotlib.pyplot as plt
-plt.ion()
+plt.ioff()
 
 
 class force:
@@ -108,6 +108,7 @@ class simple_support_2:  # a simple beam with simple support on both of its ends
     def __shear_moment(self, position):
         if position > self.length:
             print('Error - position exceeds beam length!')
+            position = self.length
             exit()
         sum_shears = 0
         sum_moments = 0
@@ -142,6 +143,9 @@ class simple_support_2:  # a simple beam with simple support on both of its ends
         if (a > b or a < 0 or a > self.length or b < 0 or b > self.length):
             print('error - index error in moment_area')
             exit()
+        if b == 1.1:
+            print('moment area at 1.1:',
+                  scipy.integrate.quad(self.moment, a, b)[0])
         return (scipy.integrate.quad(self.moment, a, b)[0])
 
     def moment_da_x(self, position):  # function needed for moment_x_cg integration
@@ -149,7 +153,11 @@ class simple_support_2:  # a simple beam with simple support on both of its ends
 
     def moment_x_cg(self, a, b):  # compute the x_cg of the moment from a over span a to b
         f = scipy.integrate.quad(self.moment_da_x, a, b)[0]
-        return (f / self.moment_area(a, b))
+        ma = self.moment_area(a, b)
+        if abs(ma) > 1e-12:
+            return (f / ma)
+        else:
+            return(1e60)
 
     def y(self, position):  # compute defelction using area-moment theorem
         # a is left support, b is position to find, c is right support
@@ -158,89 +166,131 @@ class simple_support_2:  # a simple beam with simple support on both of its ends
         if position > self.left and position < self.right:
             # find xc, which is the distance to cg of the moment area, from support c
             xc = self.moment_x_cg(self.left, self.right)
-            xc = (self.right - self.left) - xc
+            #print('xc:', xc)
+            xc = self.right - xc
+            # print('xc:',xc)
             # now compute t_ca
             t_ca = self.moment_area(
-                self.left, self.right) * xc / (self.e * self.i)
+                self.left, self.right)*xc / (self.e*self.i)
+            #print('t_ca', t_ca)
             # find xb, which is the distance to cg of the moment area, from position to support a
             xb = self.moment_x_cg(self.left, position)
-            xb = (position - self.left) - xb
+            xb = position - xb
             # now compute t_ba
             t_ba = self.moment_area(self.left, position) * \
-                                    xb / (self.e * self.i)
-            return(-1*(position*t_ca/(self.right-self.left)-t_ba))
+                xb / (self.e * self.i)
+            return(-1*((position-self.left)*t_ca/(self.right-self.left)-t_ba))
 
         if position == self.left or position == self.right:
-            return (0)
+            return(0)
 
         if position > self.right:
             xa = self.moment_x_cg(self.left, self.right)
             xa = xa - self.left
             t_ab = self.moment_area(
                 self.left, self.right) * xa / (self.e * self.i)
-            print('t_ab is', t_ab)
+            #print('t_ab is', t_ab)
             y_position = t_ab * (position - self.right) / \
-                                 (self.right - self.left)
+                (self.right - self.left)
             xc = self.moment_x_cg(self.right, position)
             xc = position - xc
-            print('xc is', xc)
-            print('moment_area bc is', self.moment_area(self.right, position))
+            #print('xc is', xc)
+            #print('moment_area bc is', self.moment_area(self.right, position))
             t_cb = self.moment_area(
                 self.right, position) * xc / (self.e * self.i)
-            print('t_cb is', t_cb)
+            #print('t_cb is', t_cb)
             return (y_position + t_cb)
 
         if position < self.left:
             xa = self.moment_x_cg(position, self.left)
-            xa = xa - position
+            #xa = xa - position
             t_ab = self.moment_area(position, self.left) * \
-                                    xa / (self.e * self.i)
+                xa / (self.e * self.i)
             xc = self.moment_x_cg(self.left, self.right)
             xc = self.right - xc
             t_cb = self.moment_area(
                 self.left, self.right) * xc / (self.e * self.i)
             y_position = t_cb * (self.left - position) / \
-                                 (self.right - self.left)
+                (self.right - self.left)
+            # print('y_position:',y_position,'t_ab:',t_ab)
             return(y_position+t_ab)
 
     def plot_moment(self):
         data_x = []
         data_y = []
         x = 0
+        mini = self.moment(x)
+        maxx = mini
         delta = 0.1
+        f = open("moment2.txt", "w")
+        f.write('x,moment,y\r')
         while x <= self.length:
-            data_x += [x]
-            data_y += [self.moment(x)]
+            x = round(x, 3)
+            y = self.moment(x)
+            line = str(x)+','+str(y)+','+str(self.y(x))+'\r'
+            f.write(line)
+            data_x.append(x)
+            data_y.append(y)
+            if y < mini:
+                mini = y
+            if y > maxx:
+                maxx = y
             x += delta
-        plt.plot(data_x, data_y)
+        f.close()
+        ax_lst[0].plot(data_x, data_y)
+        left = 'R1='+str(round(self.r1.magnitude(), 2))
+        ax_lst[0].text(self.left, self.moment(self.left), left)
+        right = 'R2=' + str(round(self.r2.magnitude(), 2))
+        ax_lst[0].text(self.right, self.moment(self.right), right)
+        #ax_lst[0].plot([self.left, self.left], [1.1 * mini, 1.1 * maxx],color='tab:purple')
+        #ax_lst[0].plot([self.right, self.right], [1.1 * mini, 1.1 * maxx],color='tab:purple')
         return
 
     def plot_deflection(self):
         data_x = []
         data_y = []
         x = 0
+        maxx = abs(self.y(x))
+        maxx_x = 0
         delta = 0.1
         while x <= self.length:
+            y = self.y(x)
             data_x += [x]
-            data_y += [self.y(x)]
+            data_y.append(y)
+            if abs(y) > abs(maxx):
+                maxx = y
+                maxx_x = x
             x += delta
-        plt.plot(data_x, data_y)
+        ax_lst[1].plot(data_x, data_y)
+        tx = 'max ' + str(round(maxx, 2)) + ' @ ' + str(round(maxx_x, 2))
+        ax_lst[1].text(maxx_x, maxx, tx)
+        ax_lst[1].text(0, self.y(0), str(round(self.y(0), 2)))
+        ax_lst[1].text(self.length, self.y(self.length),
+                       str(round(self.y(self.length), 2)))
         return
 
-    
 
-
-f1 = linear_load(0, -900, 1, 4)
-m1=moment(600,0)
+f1 = linear_load(0, -100, 3, 9)
+m1 = moment(600, 0)
 f2 = force(-60, 13)
-f3 = force(400, 7)
-cl1 = constant_load(-80, 0, 4)
+f3 = force(-400, 4)
+f4 = force(-400, 8)
+cl1 = constant_load(-8000, 0, 8)
 m = moment(4800, 9)
-a = simple_support_2(4, [f1,m1], e=1, i=1,left=1)
+a = simple_support_2(13, [f1, f2], e=1, i=1, left=0, right=9)
 print('reactions:', a.r1.magnitude(), a.r2.magnitude())
 print('moment at', a.length, a.moment(a.length))
-print('deflection at 0:', a.y(4))
+print('deflection at 0:', a.y(1.1))
+
+
+fig, ax_lst = plt.subplots(1, 2)
+ax_lst[0].set_title('Moment')
+ax_lst[1].set_title('Deflection')
+ax_lst[0].set_xlabel('beam length')
+ax_lst[1].set_xlabel('beam length')
+fig.suptitle('Moment and deflection of the beam')
+
 
 a.plot_moment()
 a.plot_deflection()
-input('press enter...')
+plt.show()
